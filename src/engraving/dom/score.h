@@ -302,8 +302,8 @@ public:
     void cmdAddFret(int fret);
     void cmdSetBeamMode(BeamMode);
     void cmdRemovePart(Part*);
-    void cmdAddTie(bool addToChord = false);
-    void cmdToggleTie();
+    void cmdAddTie(bool addToChord = false, bool allowAddTieFromPrevious = true);
+    void cmdToggleTie(bool allowAddTieFromPrevious = true);
     static std::vector<Note*> cmdTieNoteList(const Selection& selection, bool noteEntryMode);
     void cmdAddOttava(OttavaType);
     std::vector<Hairpin*> addHairpins(HairpinType);
@@ -449,7 +449,9 @@ public:
     void removeElement(EngravingItem*);
     bool containsElement(const EngravingItem*) const;
 
-    Note* addPitch(NoteVal&, bool addFlag, InputState* externalInputState = nullptr);
+    Tie* addTieBetween(Note* anote, Note* bnote);
+
+    Note* addPitch(NoteVal&, bool addFlag, InputState* externalInputState = nullptr);    
     Note* addTiedMidiPitch(int pitch, bool addFlag, Chord* prevChord);
     NoteVal noteVal(int pitch) const;
     Note* addMidiPitch(int pitch, bool addFlag);

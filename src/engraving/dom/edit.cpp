@@ -1837,11 +1837,44 @@ std::vector<Note*> Score::cmdTieNoteList(const Selection& selection, bool noteEn
     return selection.noteList();
 }
 
+Tie* Score::addTieBetween(Note* anote, Note* bnote)
+{
+    if (!anote || !bnote) {
+        LOGD("Can't create tie, one note is null");
+        return nullptr;
+    }
+    Tie* tie = Factory::createTie(this->dummy());
+
+    Fraction atick = anote->chord()->segment()->tick();
+    Fraction btick = anote->chord()->segment()->tick();
+
+    Fraction startTick;
+    Fraction length;
+
+    if (btick > atick) {
+        tie->setStartNote(anote);
+        tie->setEndNote(bnote);
+        startTick = atick;
+        length = btick - atick;
+    }
+    else {
+        tie->setStartNote(bnote);
+        tie->setEndNote(anote);
+        startTick = btick;
+        length = atick - btick;
+    }
+    tie->setTrack(anote->track());
+    tie->setTick(startTick);
+    tie->setTicks(length);
+
+    return tie;
+}
+
 //---------------------------------------------------------
 //   cmdAddTie
 //---------------------------------------------------------
 
-void Score::cmdAddTie(bool addToChord)
+void Score::cmdAddTie(bool addToChord, bool allowAddTieFromPrevious)
 {
     const std::vector<Note*> noteList = cmdTieNoteList(selection(), noteEntryMode());
 
@@ -1849,6 +1882,8 @@ void Score::cmdAddTie(bool addToChord)
         LOGD("no notes selected");
         return;
     }
+
+    LOGD("Start add tie, tie backwards: %b", allowAddTieFromPrevious);
 
     startCmd();
     Chord* lastAddedChord = 0;
@@ -1899,12 +1934,20 @@ void Score::cmdAddTie(bool addToChord)
                 }
             }
 
-            // if no note to re-use, create one
             NoteVal nval(note->noteVal());
-            if (!n) {
-                n = addPitch(nval, addFlag);
-            } else {
-                select(n);
+
+            // if no note to re-use, create one and we aren't
+            // allowed to search for a tie from previous note
+            if (!allowAddTieFromPrevious) {
+                if (!n) {
+                    n = addPitch(nval, addFlag);
+                } else {
+                    select(n);
+                }
+            }
+
+            if (allowAddTieFromPrevious) {
+                n = note;
             }
 
             if (n) {
@@ -1912,20 +1955,27 @@ void Score::cmdAddTie(bool addToChord)
                     lastAddedChord = n->chord();
                 }
                 // n is not necessarily next note if duration span over measure
-                Note* nnote = searchTieNote(note);
+                Note* nnote = nullptr;
+
+                if (allowAddTieFromPrevious) {
+                    nnote = searchTieNoteBack(note);
+                }
+                else {
+                    nnote = searchTieNote(note);
+                }
+
                 while (nnote) {
                     // DEBUG: if duration spans over measure
                     // this does not set line for intermediate notes
                     // tpc was set correctly already
                     //n->setLine(note->line());
                     //n->setTpc(note->tpc());
-                    Tie* tie = Factory::createTie(this->dummy());
-                    tie->setStartNote(note);
-                    tie->setEndNote(nnote);
-                    tie->setTrack(note->track());
-                    tie->setTick(note->chord()->segment()->tick());
-                    tie->setTicks(nnote->chord()->segment()->tick() - note->chord()->segment()->tick());
-                    undoAddElement(tie);
+
+                    Tie* tie = addTieBetween(nnote, note);
+                    if (tie) {
+                        undoAddElement(tie);
+                    }
+
                     if (!addFlag || nnote->chord()->tick() >= lastAddedChord->tick() || nnote->chord()->isGrace()) {
                         break;
                     } else {
@@ -1936,15 +1986,20 @@ void Score::cmdAddTie(bool addToChord)
                 }
             }
         } else {
-            Note* note2 = searchTieNote(note);
+            Note* note2 = 0;
+
+            if (allowAddTieFromPrevious) {
+                note2 = searchTieNoteBack(note);
+            }
+            else {
+                note2 = searchTieNote(note);
+            }
+
             if (note2) {
-                Tie* tie = Factory::createTie(this->dummy());
-                tie->setStartNote(note);
-                tie->setEndNote(note2);
-                tie->setTrack(note->track());
-                tie->setTick(note->chord()->segment()->tick());
-                tie->setTicks(note2->chord()->segment()->tick() - note->chord()->segment()->tick());
-                undoAddElement(tie);
+                Tie* tie = addTieBetween(note, note2);
+                if (tie) {
+                    undoAddElement(tie);
+                }
             }
         }
     }
@@ -1958,7 +2013,7 @@ void Score::cmdAddTie(bool addToChord)
 //   cmdRemoveTie
 //---------------------------------------------------------
 
-void Score::cmdToggleTie()
+void Score::cmdToggleTie(bool allowAddTieFromPrevious)
 {
     const std::vector<Note*> noteList = cmdTieNoteList(selection(), noteEntryMode());
 
@@ -1973,10 +2028,10 @@ void Score::cmdToggleTie()
 
     for (size_t i = 0; i < notes; ++i) {
         Note* n = noteList[i];
-        if (n->tieFor()) {
+        if (n->tieBack()) {
             tieNoteList[i] = nullptr;
         } else {
-            Note* tieNote = searchTieNote(n);
+            Note* tieNote = searchTieNoteBack(n);
             tieNoteList[i] = tieNote;
             if (tieNote) {
                 canAddTies = true;
@@ -1992,18 +2047,13 @@ void Score::cmdToggleTie()
             if (note2) {
                 Note* note = noteList[i];
 
-                Tie* tie = Factory::createTie(this->dummy());
-                tie->setStartNote(note);
-                tie->setEndNote(note2);
-                tie->setTrack(note->track());
-                tie->setTick(note->chord()->segment()->tick());
-                tie->setTicks(note2->chord()->segment()->tick() - note->chord()->segment()->tick());
+                Tie* tie = addTieBetween(note, note2);
                 undoAddElement(tie);
             }
         }
     } else {
         for (Note* n : noteList) {
-            Tie* tie = n->tieFor();
+            Tie* tie = n->tieBack();
             if (tie) {
                 undoRemoveElement(tie);
             }

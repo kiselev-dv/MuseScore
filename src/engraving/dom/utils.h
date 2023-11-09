@@ -65,6 +65,7 @@ extern Segment* nextSeg1(Segment* s, track_idx_t& track);
 extern Segment* prevSeg1(Segment* seg, track_idx_t& track);
 
 extern Note* searchTieNote(Note* note);
+extern Note* searchTieNoteBack(Note* note);
 extern Note* searchTieNote114(Note* note);
 
 extern int absStep(int pitch);
